@@ -1,0 +1,69 @@
+---
+title: "Final Project"
+author: "and Rosa Zhu"
+date: "5/17/2018"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+set.seed(1)
+library(ggformula)
+library(gridExtra)
+library(broom)
+library(dplyr)
+library(car)
+library(GGally)
+library(pander)
+library(purrr)
+website.full <- read.csv("~/Desktop/Malicious-Website-Detection/benign_or_malicious_website.csv")
+```
+
+
+# datasets
+```{r}
+website.full <- website.full %>% mutate(Type = as.factor(Type))
+# upper case
+website.full <- website.full %>% mutate_if(is.factor, toupper)
+website.full <- website.full %>% mutate_if(is.character, as.factor)
+# omit na
+website.na <- na.omit(website.full)
+# select quantitative vars
+website.quant <- website.na %>% dplyr::select(-c(URL, SERVER, WHOIS_COUNTRY, WHOIS_STATEPRO, WHOIS_REGDATE, WHOIS_UPDATED_DATE))
+# training / test set split
+index <- sample(1:nrow(website.quant), size=0.2*nrow(website.quant))
+website.train <- website.quant[-index, ]
+website.test <- website.quant[index, ]
+```
+
+# summary
+```{r}
+# histograms
+ggpairs(website.quant)
+website.quant %>%
+  keep(is.numeric) %>% 
+  gather() %>% 
+  ggplot(aes(value)) +
+    facet_wrap(~ key, scales = "free") +
+    geom_histogram()
+
+# log transform (need to deal with 0s later)
+# website.quant <- website.full %>% mutate_if(is.numeric, log)
+```
+
+# fit model
+```{r}
+glm.quant <- glm(Type ~ . , data = website.train, family = binomial)
+summary(glm.quant)
+
+glm.quant.signif <- glm(Type ~ URL_LENGTH + NUMBER_SPECIAL_CHARACTERS + CONTENT_LENGTH + DIST_REMOTE_TCP_PORT, data = website.train, family = binomial)
+summary(glm.quant.signif)
+residualPlots(glm.quant.signif)
+# predict
+pred.quant.signif <- predict(glm.quant.signif, newdata = website.test, type = "response")
+website.test <- website.test %>% mutate(pred.quant.signif = as.factor(ifelse(pred.quant.signif <= 0.5, 0, 1)))
+accuracy.quant.signif <- mean(website.test$pred.quant.signif == website.test$Type)
+```
+
