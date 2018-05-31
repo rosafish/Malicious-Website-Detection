@@ -1,6 +1,6 @@
 ---
 title: "Final Project"
-author: "and Rosa Zhu"
+author: "Weijia Ma and Rosa Zhu"
 date: "5/17/2018"
 output:
   html_document:
@@ -14,6 +14,7 @@ library(ggformula)
 library(gridExtra)
 library(broom)
 library(dplyr)
+library(stringr)
 library(car)
 library(GGally)
 library(pander)
@@ -36,6 +37,32 @@ website.quant <- website.na %>% dplyr::select(-c(URL, SERVER, WHOIS_COUNTRY, WHO
 index <- sample(1:nrow(website.quant), size=0.2*nrow(website.quant))
 website.train <- website.quant[-index, ]
 website.test <- website.quant[index, ]
+```
+
+```{r}
+# Data Wrangling Section, the resulting data set contains simplified categorical predictors.
+
+# omitting NA values in the dataset
+website <- na.omit(website)
+# omitting "None" and "NONE" values in dataset
+website <- filter(website, WHOIS_COUNTRY != "None", WHOIS_STATEPRO != "None", SERVER != "None", CHARSET != "None", WHOIS_STATEPRO != "NONE", WHOIS_REGDATE != "None", WHOIS_UPDATED_DATE != "None")
+# getting rid of WHOIS_STATEPRO and URL
+website <- website %>% 
+  dplyr::select(-c(WHOIS_STATEPRO, URL))
+# simply SERVER
+website <- website %>% 
+  mutate(SERVER = str_replace_all(SERVER, pattern = "Apache.*", "Apache")) %>%
+  mutate(SERVER = str_replace_all(SERVER, pattern = "Microsoft.*", "Microsoft")) %>%
+  mutate(SERVER = str_replace_all(SERVER, pattern = "ATS.*", "ATS")) %>%
+  mutate(SERVER = str_replace_all(SERVER, pattern = "nginx.*", "nginx")) %>%
+  mutate(SERVER = str_replace_all(SERVER, pattern = "Nginx.*", "nginx")) %>%
+  mutate(SERVER = factor(SERVER))
+# simply WHOIS_COUNTRY
+website <- website %>% 
+  mutate(WHOIS_COUNTRY = str_replace_all(WHOIS_COUNTRY, pattern = "US|us", "US")) %>%
+  mutate(WHOIS_COUNTRY = str_replace_all(WHOIS_COUNTRY, pattern = "uk|UK", "UK")) %>%
+  mutate(WHOIS_COUNTRY = str_replace_all(WHOIS_COUNTRY, ".*UK,*", "UK")) %>%
+  mutate(WHOIS_COUNTRY = factor(WHOIS_COUNTRY))
 ```
 
 # summary
