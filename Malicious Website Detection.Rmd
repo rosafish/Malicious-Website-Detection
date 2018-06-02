@@ -20,7 +20,6 @@ library(car)
 library(GGally)
 library(pander)
 library(purrr)
-library(Hmisc)
 library(MASS)
 ```
 
@@ -74,25 +73,36 @@ website <- website %>%
   mutate(CHARSET = str_replace_all(CHARSET, pattern = "ISO-8859.*", "ISO-8859")) %>%
   mutate(CHARSET = str_replace_all(CHARSET, pattern = "WINDOWS.*", "WINDOWS")) %>%
   mutate(CHARSET = as.factor(CHARSET))
+```
+
+```{r}
 # simplify WHOIS_REGDATE
 website <- website %>%
-  mutate(WHOIS_REGDATE = as.Date(WHOIS_REGDATE, format = ifelse(grepl("T", WHOIS_REGDATE), "%Y-%m-%dT", "%d/%m/%Y"))) %>% 
+  mutate(WHOIS_REGDATE = as.Date(WHOIS_REGDATE, format = ifelse(grepl("T", as.Date(WHOIS_REGDATE)), "%Y-%m-%dT", "%d/%m/%Y"))) %>% 
   mutate(WHOIS_REGDATE = as.numeric(difftime(WHOIS_REGDATE, as.Date("1990-07-26"), units = "days"))) %>%
-  mutate(NA_REGDATE = as.factor(ifelse(is.na(WHOIS_REGDATE), 1, 0))) %>%
-  mutate(WHOIS_REGDATE = impute(WHOIS_REGDATE, mean))
+  mutate(NA_REGDATE = as.factor(ifelse(is.na(WHOIS_REGDATE), 1, 0))) 
+mean.reg.date <- mean(website$WHOIS_REGDATE, na.rm = TRUE)
+website <- website %>%
+  mutate(WHOIS_REGDATE = ifelse(is.na(WHOIS_REGDATE), mean.reg.date, WHOIS_REGDATE))
 # simplify WHOIS_UPDATED_DATE
 website <- website %>%
   mutate(WHOIS_UPDATED_DATE = as.Date(WHOIS_UPDATED_DATE, format = ifelse(grepl("T", WHOIS_UPDATED_DATE), "%Y-%m-%dT", "%d/%m/%Y"))) %>%
   mutate(WHOIS_UPDATED_DATE = as.numeric(difftime(WHOIS_UPDATED_DATE, as.Date("2008-07-14"), units = "days"))) %>%
-  mutate(NA_UPDATED_DATE = as.factor(ifelse(is.na(WHOIS_UPDATED_DATE), 1, 0))) %>%
-  mutate(WHOIS_UPDATED_DATE = impute(WHOIS_UPDATED_DATE, mean))
+  mutate(NA_UPDATED_DATE = as.factor(ifelse(is.na(WHOIS_UPDATED_DATE), 1, 0)))
+mean.update.date <- mean(na.omit(website$WHOIS_UPDATED_DATE))
+website <- website %>%
+  mutate(WHOIS_UPDATED_DATE = ifelse(is.na(WHOIS_UPDATED_DATE), mean.update.date, WHOIS_UPDATED_DATE))
 # factor Type
 website <- website %>% mutate(Type = as.factor(Type))
+website.sm <- website %>%
+  mutate(WHOIS_REGDATE = ifelse(is.na(WHOIS_REGDATE), mean.reg.date, WHOIS_REGDATE))
 ```
-
+  
 # EDA
 
 ```{r}
+# histograms
+#ggpairs(website.quant)
 # App Packets & Bytes
 #ggpairs(website[, 12:17])
 gf_boxplot(APP_BYTES ~ Type, data = website)
@@ -133,12 +143,19 @@ emplog <- function(x) { return (log(x+0.5)) }
 website <-website %>%
   mutate(WHOIS_COUNTRY = relevel(WHOIS_COUNTRY, ref = "NONE"))
 inf.mod.full <- glm(Type ~ . , data = website, family = binomial)
+str(website)
 summary(inf.mod.full)
-influenceIndexPlot(inf.mod.full)
+```
+
+```{r}
+influenceIndexPlot(inf.mod.full, vars = c("Cook", "Studentized", "hat"))
 residualPlots(inf.mod.full)
-outlier <- website [-c(443,898, 468,897,671,72,558),]
-inf.mod.no.outlier <- glm(Type ~ . , data = outlier, family = binomial)
-influenceIndexPlot(inf.mod.no.outlier)
+```
+
+```{r}
+website <- website [-c(443,898, 468,897,671,72,558),]
+inf.mod.no.outlier <- glm(Type ~ . , data = website, family = binomial)
+influenceIndexPlot(inf.mod.no.outlier, vars = c("Cook", "Studentized", "hat"))
 residualPlots(inf.mod.no.outlier)
 ```
 
@@ -162,6 +179,10 @@ summary(inf.mod.aic)
 ```
 
 # Fit Model for Prediction
+```{r}
+
+```
+
  
 ## Create Training and Test Datasets
 ```{r}
