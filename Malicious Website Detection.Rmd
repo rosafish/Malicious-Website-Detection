@@ -20,11 +20,12 @@ library(car)
 library(GGally)
 library(pander)
 library(purrr)
+library(Hmisc)
 website.full <- read.csv("~/Desktop/Malicious-Website-Detection/benign_or_malicious_website.csv")
 ```
 
 
-# datasets
+## datasets
 ```{r}
 website.full <- website.full %>% mutate(Type = as.factor(Type))
 # upper case
@@ -40,6 +41,7 @@ website.train <- website.quant[-index, ]
 website.test <- website.quant[index, ]
 ```
 
+## Data Wrangling
 ```{r}
 # Data Wrangling Section, the resulting data set contains simplified categorical predictors.
 
@@ -82,14 +84,22 @@ website <- website %>%
 website.sim <- website %>%
   filter(str_detect(website$WHOIS_REGDATE, "T"))
 # simplify WHOIS_REGDATE
-website <- website %>% mutate(WHOIS_REGDATE = as.Date(WHOIS_REGDATE, format = ifelse(grepl("T", WHOIS_REGDATE), "%Y-%m-%dT", "%d/%m/%Y")))
-website <- website %>% mutate(WHOIS_REGDATE = as.numeric(difftime(WHOIS_REGDATE, as.Date("1990-07-26"), units = "days")))
+website <- website %>%
+  mutate(WHOIS_REGDATE = as.Date(WHOIS_REGDATE, format = ifelse(grepl("T", WHOIS_REGDATE), "%Y-%m-%dT", "%d/%m/%Y"))) %>% 
+  mutate(WHOIS_REGDATE = as.numeric(difftime(WHOIS_REGDATE, as.Date("1990-07-26"), units = "days"))) %>%
+  mutate(NA_REGDATE = as.factor(ifelse(is.na(WHOIS_REGDATE), 1, 0))) %>%
+  mutate(WHOIS_REGDATE = impute(WHOIS_REGDATE, mean))
 # simplify WHOIS_UPDATED_DATE
-website <- website %>% mutate(WHOIS_UPDATED_DATE = as.Date(WHOIS_UPDATED_DATE, format = ifelse(grepl("T", WHOIS_UPDATED_DATE), "%Y-%m-%dT", "%d/%m/%Y")))
-website <- website %>% mutate(WHOIS_UPDATED_DATE = as.numeric(difftime(WHOIS_UPDATED_DATE, as.Date("2008-07-14"), units = "days")))
+website <- website %>%
+  mutate(WHOIS_UPDATED_DATE = as.Date(WHOIS_UPDATED_DATE, format = ifelse(grepl("T", WHOIS_UPDATED_DATE), "%Y-%m-%dT", "%d/%m/%Y"))) %>%
+  mutate(WHOIS_UPDATED_DATE = as.numeric(difftime(WHOIS_UPDATED_DATE, as.Date("2008-07-14"), units = "days"))) %>%
+  mutate(NA_UPDATED_DATE = as.factor(ifelse(is.na(WHOIS_UPDATED_DATE), 1, 0))) %>%
+  mutate(WHOIS_UPDATED_DATE = impute(WHOIS_UPDATED_DATE, mean))
+# factor Type
+website <- website %>% mutate(Type = as.factor(Type))
 ```
 
-# summary
+# EDA
 ```{r}
 # histograms
 ggpairs(website.quant)
@@ -102,19 +112,36 @@ website.quant %>%
 
 # log transform (need to deal with 0s later)
 # website.quant <- website.full %>% mutate_if(is.numeric, log)
+
+# REGDATE
+gf_boxplot(WHOIS_REGDATE ~ Type, data = website)
+regtest <- website %>% mutate(WHOIS_REGDATE = impute(WHOIS_REGDATE, mean))
+gf_boxplot(WHOIS_REGDATE ~ Type, data = regtest)
 ```
 
 # fit model
 ```{r}
+# glm1
 glm.quant <- glm(Type ~ . , data = website.train, family = binomial)
 summary(glm.quant)
-
 glm.quant.signif <- glm(Type ~ URL_LENGTH + NUMBER_SPECIAL_CHARACTERS + CONTENT_LENGTH + DIST_REMOTE_TCP_PORT, data = website.train, family = binomial)
 summary(glm.quant.signif)
 residualPlots(glm.quant.signif)
-# predict
+# predict1
 pred.quant.signif <- predict(glm.quant.signif, newdata = website.test, type = "response")
 website.test <- website.test %>% mutate(pred.quant.signif = as.factor(ifelse(pred.quant.signif <= 0.5, 0, 1)))
 accuracy.quant.signif <- mean(website.test$pred.quant.signif == website.test$Type)
 ```
 
+```{r}
+# glm2
+glm.full <- glm(Type ~ . , data = website.train, family = binomial)
+summary(glm.quant)
+glm.quant.signif <- glm(Type ~ URL_LENGTH + NUMBER_SPECIAL_CHARACTERS + CONTENT_LENGTH + DIST_REMOTE_TCP_PORT, data = website.train, family = binomial)
+summary(glm.quant.signif)
+residualPlots(glm.quant.signif)
+# predict1
+pred.quant.signif <- predict(glm.quant.signif, newdata = website.test, type = "response")
+website.test <- website.test %>% mutate(pred.quant.signif = as.factor(ifelse(pred.quant.signif <= 0.5, 0, 1)))
+accuracy.quant.signif <- mean(website.test$pred.quant.signif == website.test$Type)
+```
