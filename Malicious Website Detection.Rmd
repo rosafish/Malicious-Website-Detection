@@ -20,31 +20,24 @@ library(car)
 library(GGally)
 library(pander)
 library(purrr)
-website.full <- read.csv("~/Desktop/Malicious-Website-Detection/benign_or_malicious_website.csv")
+library(MASS)
 ```
+
 
 
 # Load Dataset
 ```{r}
-website.full <- website.full %>% mutate(Type = as.factor(Type))
-# upper case
-website.full <- website.full %>% mutate_if(is.factor, toupper)
-website.full <- website.full %>% mutate_if(is.character, as.factor)
-# omit na
-website.na <- na.omit(website.full)
-# select quantitative vars
-website.quant <- website.na %>% 
-  dplyr::select(-c(URL, SERVER, WHOIS_COUNTRY, WHOIS_STATEPRO, WHOIS_REGDATE, WHOIS_UPDATED_DATE))
-# training / test set split for dataset with quantitative predictors only
-index <- sample(1:nrow(website.quant), size=0.2*nrow(website.quant))
-website.train <- website.quant[-index, ]
-website.test <- website.quant[index, ]
+website <- read.csv("~/Desktop/Malicious-Website-Detection/benign_or_malicious_website.csv")
 ```
+
 
 # Data Wrangling and Cleaning on Categorical Predictors
 ```{r}
+# upper case
+website <- website %>% mutate_if(is.factor, toupper)
+website <- website %>% mutate_if(is.character, as.factor)
 # omitting NA values in the dataset
-website <- na.omit(website.full)
+website <- na.omit(website)
 # getting rid of WHOIS_STATEPRO and URL
 website <- website %>% 
   dplyr::select(-c(WHOIS_STATEPRO, URL))
@@ -80,28 +73,44 @@ website <- website %>%
   mutate(CHARSET = str_replace_all(CHARSET, pattern = "ISO-8859.*", "ISO-8859")) %>%
   mutate(CHARSET = str_replace_all(CHARSET, pattern = "WINDOWS.*", "WINDOWS")) %>%
   mutate(CHARSET = as.factor(CHARSET))
-# simplify WHOIS_REGDATE
-website <- website %>% 
-  mutate(WHOIS_REGDATE = 
-           as.Date(WHOIS_REGDATE, format = ifelse(grepl("T", WHOIS_REGDATE), "%Y-%m-%dT", "%d/%m/%Y")))
-website <- website %>% 
-  mutate(WHOIS_REGDATE = 
-           as.numeric(difftime(WHOIS_REGDATE, as.Date("1990-07-26"), units = "days")))
-# simplify WHOIS_UPDATED_DATE
-website <- website %>% 
-  mutate(WHOIS_UPDATED_DATE = 
-           as.Date(WHOIS_UPDATED_DATE, format = ifelse(grepl("T", WHOIS_UPDATED_DATE), "%Y-%m-%dT", "%d/%m/%Y")))
-website <- website %>% 
-  mutate(WHOIS_UPDATED_DATE = 
-           as.numeric(difftime(WHOIS_UPDATED_DATE, as.Date("2008-07-14"), units = "days")))
-website <- website %>%
-  mutate(Type = as.factor(Type))
 ```
 
-# Summary of Quantitative Predictors
+```{r}
+# simplify WHOIS_REGDATE
+website <- website %>%
+  mutate(WHOIS_REGDATE = as.Date(WHOIS_REGDATE, format = ifelse(grepl("T", as.Date(WHOIS_REGDATE)), "%Y-%m-%dT", "%d/%m/%Y"))) %>% 
+  mutate(WHOIS_REGDATE = as.numeric(difftime(WHOIS_REGDATE, as.Date("1990-07-26"), units = "days"))) %>%
+  mutate(NA_REGDATE = as.factor(ifelse(is.na(WHOIS_REGDATE), 1, 0))) 
+mean.reg.date <- mean(website$WHOIS_REGDATE, na.rm = TRUE)
+website <- website %>%
+  mutate(WHOIS_REGDATE = ifelse(is.na(WHOIS_REGDATE), mean.reg.date, WHOIS_REGDATE))
+# simplify WHOIS_UPDATED_DATE
+website <- website %>%
+  mutate(WHOIS_UPDATED_DATE = as.Date(WHOIS_UPDATED_DATE, format = ifelse(grepl("T", WHOIS_UPDATED_DATE), "%Y-%m-%dT", "%d/%m/%Y"))) %>%
+  mutate(WHOIS_UPDATED_DATE = as.numeric(difftime(WHOIS_UPDATED_DATE, as.Date("2008-07-14"), units = "days"))) %>%
+  mutate(NA_UPDATED_DATE = as.factor(ifelse(is.na(WHOIS_UPDATED_DATE), 1, 0)))
+mean.update.date <- mean(na.omit(website$WHOIS_UPDATED_DATE))
+website <- website %>%
+  mutate(WHOIS_UPDATED_DATE = ifelse(is.na(WHOIS_UPDATED_DATE), mean.update.date, WHOIS_UPDATED_DATE))
+# factor Type
+website <- website %>% mutate(Type = as.factor(Type))
+website.sm <- website %>%
+  mutate(WHOIS_REGDATE = ifelse(is.na(WHOIS_REGDATE), mean.reg.date, WHOIS_REGDATE))
+```
+  
+# EDA
+
 ```{r}
 # histograms
 #ggpairs(website.quant)
+# App Packets & Bytes
+#ggpairs(website[, 12:17])
+gf_boxplot(APP_BYTES ~ Type, data = website)
+
+# Quantatative
+# select quantitative vars
+website.quant <- website %>% 
+  dplyr::select(-c(SERVER, WHOIS_COUNTRY, CHARSET))
 website.quant %>%
   keep(is.numeric) %>% 
   gather() %>% 
@@ -109,15 +118,65 @@ website.quant %>%
     facet_wrap(~ key, scales = "free") +
     geom_histogram()
 
-# log transform (need to deal with 0s later)
-# website.quant <- website.full %>% mutate_if(is.numeric, log)
+# Charset
+website %>% gf_bar(~CHARSET, fill=~Type)
+table(website$CHARSET, website$Type) %>% prop.table(margin=1)
+
+# SERVER
+website %>% gf_bar(~SERVER, fill=~Type)
+table(website$SERVER, website$Type) %>% prop.table(margin=1)
+
+# REGDATE
+gf_boxplot(WHOIS_REGDATE ~ Type, data = website)
+
+# log transform
+emplog <- function(x) { return (log(x+0.5)) }
+#website <- website%>%
+  #mutate(WHOIS_REGDATE = as.character(WHOIS_REGDATE)) %>% 
+  #mutate_if(is.numeric, emplog) %>%
+  #mutate(WHOIS_REGDATE = as.numeric(WHOIS_REGDATE))
 ```
 
 # Fit Model for Inference
+## Fit Full Model & Outlier Detection & Model Assumption Checking
 ```{r}
-#website.inf.mod1 <- glm(Type ~ . - c(WHOIS_REGDATE, WHOIS_UPDATED_DATE), data = website, family = binomial)
+website <-website %>%
+  mutate(WHOIS_COUNTRY = relevel(WHOIS_COUNTRY, ref = "NONE"))
+inf.mod.full <- glm(Type ~ . , data = website, family = binomial)
+str(website)
+summary(inf.mod.full)
 ```
 
+```{r}
+influenceIndexPlot(inf.mod.full, vars = c("Cook", "Studentized", "hat"))
+residualPlots(inf.mod.full)
+```
+
+```{r}
+website <- website [-c(443,898, 468,897,671,72,558),]
+inf.mod.no.outlier <- glm(Type ~ . , data = website, family = binomial)
+influenceIndexPlot(inf.mod.no.outlier, vars = c("Cook", "Studentized", "hat"))
+residualPlots(inf.mod.no.outlier)
+```
+
+## Model Selection
+```{r}
+# Multicollinearity (PACKETS & BYTES)
+inf.mod.bytes <- update(inf.mod.no.outlier, . ~ . - (REMOTE_APP_PACKETS + SOURCE_APP_PACKETS +  REMOTE_APP_BYTES + APP_PACKETS + APP_BYTES))
+anova(inf.mod.bytes, inf.mod.no.outlier, test = "Chisq")
+# Stepwise
+inf.mod.aic <- stepAIC(inf.mod.bytes,
+                           scope = list(lower ~ 1),
+                           direction = "both",
+                           trace = 0)
+summary(inf.mod.aic)
+```
+
+
+## Interpretation
+```{r}
+
+```
 
 # Fit Model for Prediction
 ```{r}
@@ -128,22 +187,45 @@ website.quant %>%
 ## Create Training and Test Datasets
 ```{r}
 index <- sample(1:nrow(website), size=0.2*nrow(website))
-website.train.1 <- website[-index, ]
-website.test.1 <- website[index, ]
+website.train <- website[-index, ]
+website.test <- website[index, ]
 ```
 
+## Fit Model
+```{r}
+pred.mod.full <- glm(Type ~ . , data = website.train, family = binomial)
+summary(pred.mod.full)
+
+pred.mod.no.packet <- update(pred.mod.full, . ~ . - (REMOTE_APP_PACKETS + SOURCE_APP_PACKETS +  REMOTE_APP_BYTES + APP_PACKETS + APP_BYTES))
+summary(pred.mod.no.packet)
+```
+
+## Prediction
+```{r}
+pred.full <- predict(pred.mod.full, newdata = website.test, type = "response")
+website.test <- website.test %>% mutate(pred.full = as.factor(ifelse(pred.full <= 0.5, 0, 1)))
+accuracy.full <- mean(website.test$pred.full == website.test$Type)
+```
+
+# Fit Quantatative Model
 
 ```{r}
-glm.quant <- glm(Type ~ . , data = website.train, family = binomial)
-summary(glm.quant)
+# training / test set split for dataset with quantitative predictors only
+index <- sample(1:nrow(website.quant), size=0.2*nrow(website.quant))
+website.train.quant <- website.quant[-index, ]
+website.test.quant <- website.quant[index, ]
 
-glm.quant.signif <- glm(Type ~ URL_LENGTH + NUMBER_SPECIAL_CHARACTERS + CONTENT_LENGTH + DIST_REMOTE_TCP_PORT, 
-                        data = website.train, family = binomial)
-summary(glm.quant.signif)
-residualPlots(glm.quant.signif)
+# glm
+pred.mod.quant <- glm(Type ~ . , data = website.train.quant, family = binomial)
+summary(pred.mod.quant)
+pred.mod.quant.signif <- glm(Type ~ URL_LENGTH + NUMBER_SPECIAL_CHARACTERS + CONTENT_LENGTH + DIST_REMOTE_TCP_PORT, 
+                        data = website.train.quant, family = binomial)
+summary(pred.mod.quant.signif)
+residualPlots(pred.mod.quant.signif)
+
 # predict
-pred.quant.signif <- predict(glm.quant.signif, newdata = website.test, type = "response")
-website.test <- website.test %>% mutate(pred.quant.signif = as.factor(ifelse(pred.quant.signif <= 0.5, 0, 1)))
-accuracy.quant.signif <- mean(website.test$pred.quant.signif == website.test$Type)
+pred.quant.signif <- predict(pred.mod.quant.signif, newdata = website.test.quant, type = "response")
+website.test <- website.test.quant %>% mutate(pred.quant.signif = as.factor(ifelse(pred.quant.signif <= 0.5, 0, 1)))
+accuracy.quant.signif <- mean(website.test.quant$pred.quant.signif == website.test$Type)
 ```
 
