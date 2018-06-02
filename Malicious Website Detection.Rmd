@@ -8,7 +8,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
 set.seed(1)
 library(ggformula)
 library(gridExtra)
@@ -101,7 +101,7 @@ website <- website %>%
 # Summary of Quantitative Predictors
 ```{r}
 # histograms
-ggpairs(website.quant)
+#ggpairs(website.quant)
 website.quant %>%
   keep(is.numeric) %>% 
   gather() %>% 
@@ -120,6 +120,10 @@ website.quant %>%
 
 
 # Fit Model for Prediction
+```{r}
+
+```
+
  
 ## Create Training and Test Datasets
 ```{r}
