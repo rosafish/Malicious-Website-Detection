@@ -25,7 +25,8 @@ website.full <- read.csv("~/Desktop/Malicious-Website-Detection/benign_or_malici
 ```
 
 
-## datasets
+
+# Load Dataset
 ```{r}
 website.full <- website.full %>% mutate(Type = as.factor(Type))
 # upper case
@@ -34,17 +35,17 @@ website.full <- website.full %>% mutate_if(is.character, as.factor)
 # omit na
 website.na <- na.omit(website.full)
 # select quantitative vars
-website.quant <- website.na %>% dplyr::select(-c(URL, SERVER, WHOIS_COUNTRY, WHOIS_STATEPRO, WHOIS_REGDATE, WHOIS_UPDATED_DATE))
-# training / test set split
+website.quant <- website.na %>% 
+  dplyr::select(-c(URL, SERVER, WHOIS_COUNTRY, WHOIS_STATEPRO, WHOIS_REGDATE, WHOIS_UPDATED_DATE))
+# training / test set split for dataset with quantitative predictors only
 index <- sample(1:nrow(website.quant), size=0.2*nrow(website.quant))
 website.train <- website.quant[-index, ]
 website.test <- website.quant[index, ]
 ```
 
-## Data Wrangling
-```{r}
-# Data Wrangling Section, the resulting data set contains simplified categorical predictors.
 
+# Data Wrangling and Cleaning on Categorical Predictors
+```{r}
 # omitting NA values in the dataset
 website <- na.omit(website.full)
 # getting rid of WHOIS_STATEPRO and URL
@@ -63,7 +64,8 @@ main.server <- c("APACHE", "GSE", "MICROSOFT", "NGINX", "NONE")
 wrong.server <- c("XXXXXXXXXXXXXXXXXXXXXX", "YIPPEE-KI-YAY", "WWW.LEXISNEXIS.COM  9999", "SERVER")
 # combine wrong and main SERVER
 server.comb <- combine(main.server, wrong.server)
-# simplify SERVER, all values not in main server or wrong server lists are set to be "OTHER", values in wrong server lists are set to be "SUSPICIOUS"
+# simplify SERVER, all values not in main server or wrong server lists are set to be "OTHER", 
+# values in wrong server lists are set to be "SUSPICIOUS"
 website <- website %>% 
   mutate(SERVER = as.factor(ifelse(SERVER %in% server.comb, as.character(SERVER), "OTHER"))) %>%
   mutate(SERVER = as.factor(ifelse(SERVER %in% wrong.server, "SUSPICIOUS", as.character(SERVER))))
@@ -81,8 +83,6 @@ website <- website %>%
   mutate(CHARSET = str_replace_all(CHARSET, pattern = "ISO-8859.*", "ISO-8859")) %>%
   mutate(CHARSET = str_replace_all(CHARSET, pattern = "WINDOWS.*", "WINDOWS")) %>%
   mutate(CHARSET = as.factor(CHARSET))
-website.sim <- website %>%
-  filter(str_detect(website$WHOIS_REGDATE, "T"))
 # simplify WHOIS_REGDATE
 website <- website %>%
   mutate(WHOIS_REGDATE = as.Date(WHOIS_REGDATE, format = ifelse(grepl("T", WHOIS_REGDATE), "%Y-%m-%dT", "%d/%m/%Y"))) %>% 
@@ -100,6 +100,7 @@ website <- website %>% mutate(Type = as.factor(Type))
 ```
 
 # EDA
+
 ```{r}
 # histograms
 ggpairs(website.quant)
@@ -119,12 +120,28 @@ regtest <- website %>% mutate(WHOIS_REGDATE = impute(WHOIS_REGDATE, mean))
 gf_boxplot(WHOIS_REGDATE ~ Type, data = regtest)
 ```
 
-# fit model
+# Fit Model for Inference
+```{r}
+#website.inf.mod1 <- glm(Type ~ . - c(WHOIS_REGDATE, WHOIS_UPDATED_DATE), data = website, family = binomial)
+```
+
+
+# Fit Model for Prediction
+ 
+## Create Training and Test Datasets
+```{r}
+index <- sample(1:nrow(website), size=0.2*nrow(website))
+website.train.1 <- website[-index, ]
+website.test.1 <- website[index, ]
+```
+
+
 ```{r}
 # glm1
 glm.quant <- glm(Type ~ . , data = website.train, family = binomial)
 summary(glm.quant)
-glm.quant.signif <- glm(Type ~ URL_LENGTH + NUMBER_SPECIAL_CHARACTERS + CONTENT_LENGTH + DIST_REMOTE_TCP_PORT, data = website.train, family = binomial)
+glm.quant.signif <- glm(Type ~ URL_LENGTH + NUMBER_SPECIAL_CHARACTERS + CONTENT_LENGTH + DIST_REMOTE_TCP_PORT, 
+                        data = website.train, family = binomial)
 summary(glm.quant.signif)
 residualPlots(glm.quant.signif)
 # predict1
