@@ -81,6 +81,12 @@ website <- website %>%
   mutate(CHARSET = as.factor(CHARSET))
 website.sim <- website %>%
   filter(str_detect(website$WHOIS_REGDATE, "T"))
+# simplify WHOIS_REGDATE
+website <- website %>% mutate(WHOIS_REGDATE = as.Date(WHOIS_REGDATE, format = ifelse(grepl("T", WHOIS_REGDATE), "%Y-%m-%dT", "%d/%m/%Y")))
+website <- website %>% mutate(WHOIS_REGDATE = as.numeric(difftime(WHOIS_REGDATE, as.Date("1990-07-26"), units = "days")))
+# simplify WHOIS_UPDATED_DATE
+website <- website %>% mutate(WHOIS_UPDATED_DATE = as.Date(WHOIS_UPDATED_DATE, format = ifelse(grepl("T", WHOIS_UPDATED_DATE), "%Y-%m-%dT", "%d/%m/%Y")))
+website <- website %>% mutate(WHOIS_UPDATED_DATE = as.numeric(difftime(WHOIS_UPDATED_DATE, as.Date("2008-07-14"), units = "days")))
 ```
 
 # summary
