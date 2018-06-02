@@ -14,6 +14,7 @@ library(ggformula)
 library(gridExtra)
 library(broom)
 library(dplyr)
+library(tidyr)
 library(stringr)
 library(car)
 library(GGally)
@@ -43,26 +44,43 @@ website.test <- website.quant[index, ]
 # Data Wrangling Section, the resulting data set contains simplified categorical predictors.
 
 # omitting NA values in the dataset
-website <- na.omit(website)
-# omitting "None" and "NONE" values in dataset
-website <- filter(website, WHOIS_COUNTRY != "None", WHOIS_STATEPRO != "None", SERVER != "None", CHARSET != "None", WHOIS_STATEPRO != "NONE", WHOIS_REGDATE != "None", WHOIS_UPDATED_DATE != "None")
+website <- na.omit(website.full)
 # getting rid of WHOIS_STATEPRO and URL
 website <- website %>% 
   dplyr::select(-c(WHOIS_STATEPRO, URL))
-# simply SERVER
+# simplify SERVER
 website <- website %>% 
-  mutate(SERVER = str_replace_all(SERVER, pattern = "Apache.*", "Apache")) %>%
-  mutate(SERVER = str_replace_all(SERVER, pattern = "Microsoft.*", "Microsoft")) %>%
+  mutate(SERVER = str_replace_all(SERVER, pattern = "APACHE.*", "APACHE")) %>%
+  mutate(SERVER = str_replace_all(SERVER, pattern = "MICROSOFT.*", "MICROSOFT")) %>%
   mutate(SERVER = str_replace_all(SERVER, pattern = "ATS.*", "ATS")) %>%
-  mutate(SERVER = str_replace_all(SERVER, pattern = "nginx.*", "nginx")) %>%
-  mutate(SERVER = str_replace_all(SERVER, pattern = "Nginx.*", "nginx")) %>%
+  mutate(SERVER = str_replace_all(SERVER, pattern = "NGINX.*", "NGINX")) %>%
   mutate(SERVER = factor(SERVER))
-# simply WHOIS_COUNTRY
+# main SERVER
+main.server <- c("APACHE", "GSE", "MICROSOFT", "NGINX", "NONE")
+# wrong SERVER
+wrong.server <- c("XXXXXXXXXXXXXXXXXXXXXX", "YIPPEE-KI-YAY", "WWW.LEXISNEXIS.COM  9999", "SERVER")
+# combine wrong and main SERVER
+server.comb <- combine(main.server, wrong.server)
+# simplify SERVER, all values not in main server or wrong server lists are set to be "OTHER", values in wrong server lists are set to be "SUSPICIOUS"
 website <- website %>% 
-  mutate(WHOIS_COUNTRY = str_replace_all(WHOIS_COUNTRY, pattern = "US|us", "US")) %>%
-  mutate(WHOIS_COUNTRY = str_replace_all(WHOIS_COUNTRY, pattern = "uk|UK", "UK")) %>%
-  mutate(WHOIS_COUNTRY = str_replace_all(WHOIS_COUNTRY, ".*UK,*", "UK")) %>%
+  mutate(SERVER = as.factor(ifelse(SERVER %in% server.comb, as.character(SERVER), "OTHER"))) %>%
+  mutate(SERVER = as.factor(ifelse(SERVER %in% wrong.server, "SUSPICIOUS", as.character(SERVER))))
+# simplify WHOIS_COUNTRY
+website <- website %>% 
+  mutate(WHOIS_COUNTRY = str_replace_all(WHOIS_COUNTRY, ".*UK.*", "UK")) %>%
+  mutate(WHOIS_COUNTRY = str_replace_all(WHOIS_COUNTRY, "UNITED KINGDOM", "UK")) %>%
+  mutate(WHOIS_COUNTRY = str_replace_all(WHOIS_COUNTRY, "GB", "UK")) %>%
   mutate(WHOIS_COUNTRY = factor(WHOIS_COUNTRY))
+main.country <- c("UK", "US", "CA", "NONE")
+website <- website %>% 
+  mutate(WHOIS_COUNTRY = as.factor(ifelse(WHOIS_COUNTRY %in% main.country, as.character(WHOIS_COUNTRY), "OTHER")))
+# simplify CHARSET
+website <- website %>% 
+  mutate(CHARSET = str_replace_all(CHARSET, pattern = "ISO-8859.*", "ISO-8859")) %>%
+  mutate(CHARSET = str_replace_all(CHARSET, pattern = "WINDOWS.*", "WINDOWS")) %>%
+  mutate(CHARSET = as.factor(CHARSET))
+website.sim <- website %>%
+  filter(str_detect(website$WHOIS_REGDATE, "T"))
 ```
 
 # summary
