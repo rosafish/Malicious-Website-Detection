@@ -3,12 +3,11 @@ title: "Final Project"
 author: "Weijia Ma and Rosa Zhu"
 date: "5/17/2018"
 output:
-  html_document:
-    df_print: paged
+  html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, cache = TRUE, warning = FALSE, message = FALSE)
+knitr::opts_chunk$set(echo = TRUE,warning = FALSE, message = FALSE)
 set.seed(1)
 library(ggformula)
 library(gridExtra)
@@ -21,6 +20,7 @@ library(GGally)
 library(pander)
 library(purrr)
 library(MASS)
+library(ROCR)
 ```
 
 
@@ -106,6 +106,8 @@ website.sm <- website %>%
 # App Packets & Bytes
 #ggpairs(website[, 12:17])
 gf_boxplot(APP_BYTES ~ Type, data = website)
+gf_boxplot(URL_LENGTH ~ Type, data = website)
+gf_boxplot(DNS_QUERY_TIMES ~ Type, data = website)
 
 # Quantatative
 # select quantitative vars
@@ -129,12 +131,13 @@ table(website$SERVER, website$Type) %>% prop.table(margin=1)
 # REGDATE
 gf_boxplot(WHOIS_REGDATE ~ Type, data = website)
 
-# log transform
-emplog <- function(x) { return (log(x+0.5)) }
-#website <- website%>%
-  #mutate(WHOIS_REGDATE = as.character(WHOIS_REGDATE)) %>% 
-  #mutate_if(is.numeric, emplog) %>%
-  #mutate(WHOIS_REGDATE = as.numeric(WHOIS_REGDATE))
+# numerical summary of the data
+web.sum <- summary(website)
+pander(web.sum)
+
+# graphical summary of the data (some variables)
+spineplot(Type ~ SERVER, data = website)
+spineplot(Type ~ WHOIS_COUNTRY, data = website)
 ```
 
 # Fit Model for Inference
@@ -194,22 +197,26 @@ pred.mod.full <- glm(Type ~ . , data = website.train, family = binomial)
 summary(pred.mod.full)
 
 # No packets
-pred.mod.no.packet <- pred.mod.full
+pred.mod.no.packet <- glm(Type ~ . -(REMOTE_APP_PACKETS + SOURCE_APP_PACKETS +  REMOTE_APP_BYTES + APP_PACKETS + APP_BYTES), data = website.train, family = binomial)
 summary(pred.mod.no.packet)
 
-# Avoid overfitting, use the reduced model we got from above
+# Avoid overfitting, use the reduced model we got from AIC stepwise elimination
 pred.mod.inf.mod.aic <- update(inf.mod.aic, Type ~ URL_LENGTH + NUMBER_SPECIAL_CHARACTERS + SERVER + CONTENT_LENGTH +
                                  WHOIS_COUNTRY + WHOIS_REGDATE + TCP_CONVERSATION_EXCHANGE + DIST_REMOTE_TCP_PORT +
                                  SOURCE_APP_BYTES + DNS_QUERY_TIMES + NA_UPDATED_DATE, data = website.train, family = binomial)
 summary(pred.mod.inf.mod.aic)
 
 # No server
-pred.mod.no.server <- update(inf.mod.aic, . ~ . -SERVER, data = website.train, family = binomial)
+pred.mod.no.server <- update(pred.mod.no.packet, . ~ . -SERVER, data = website.train, family = binomial)
 summary(pred.mod.no.server)
 
 # No country
-pred.mod.no.country <- update(inf.mod.aic, . ~ . -WHOIS_COUNTRY, data = website.train, family = binomial)
+pred.mod.no.country <- update(pred.mod.no.packet, . ~ . -WHOIS_COUNTRY, data = website.train, family = binomial)
 summary(pred.mod.no.country)
+
+# No update date
+pred.mod.final <- update(pred.mod.no.packet, . ~ . -WHOIS_UPDATED_DATE, data = website.train, family = binomial)
+summary(pred.mod.final)
 ```
 
 ## Prediction
@@ -238,10 +245,35 @@ website.test <- website.test %>% mutate(pred.no.server = as.factor(ifelse(as.num
 pred.no.country.col  <- predict(pred.mod.no.country , newdata = website.test, type = "response")
 website.test <- website.test %>% mutate(pred.no.country = as.factor(ifelse(as.numeric(pred.no.country.col) <= 0.5, 0, 1)))
 (accuracy.no.country  <- mean(website.test$pred.no.country  == website.test$Type))
+
+# No DNS
+pred.final.col <- predict(pred.mod.final , newdata = website.test, type = "response")
+website.test <- website.test %>% mutate(pred.final = as.factor(ifelse(as.numeric(pred.final.col) <= 0.5, 0, 1)))
+(accuracy.final  <- mean(website.test$pred.final  == website.test$Type))
 ```
 
 ```{r}
-pred.mod.no.packet.sum <- summary(pred.mod.no.packet)
-pander(cbind(pred.mod.no.packet.sum$coefficients), type = "pdf")
+pred.final.sum <- summary(pred.mod.final)
+pander(cbind(pred.final.sum$coefficients), type = "pdf")
+
+preds_obj2 <- prediction(pred.inf.mod.aic.col, website.test$Type)
+perf_obj2 <- performance(preds_obj2, "tpr","fpr")
+perf_df2 <- data_frame(fpr=unlist(perf_obj2@x.values),tpr= unlist(perf_obj2@y.values), threshold=unlist(perf_obj2@alpha.values), model="Inferential Model")
+plot(perf_obj2)
+
+preds_obj1 <- prediction(pred.final.col, website.test$Type)
+perf_obj1 <- performance(preds_obj1, "tpr","fpr")
+perf_df1 <- data_frame(fpr=unlist(perf_obj1@x.values),tpr= unlist(perf_obj1@y.values), threshold=unlist(perf_obj1@alpha.values), model="Predictive Model")
+head(perf_df1)
+perf_df <- bind_rows(perf_df1, perf_df2)
+perf_df
+ggplot(perf_df, aes(x=fpr, y=tpr, color=model)) +  geom_line() + 
+  labs(x="false positive rate (1-specificity)", y="true positive rate (sensitivity)", title="ROC curve for logistic") + 
+  geom_abline(slope=1,intercept=0, linetype=3) 
+
+ggplot(perf_df1, aes(x=fpr, y=tpr, color=threshold)) +  geom_line() + 
+  labs(x="false positive rate (1-specificity)", y="true positive rate (sensitivity)", title="ROC curve for logistic") + 
+  geom_abline(slope=1,intercept=0, linetype=3) + 
+  scale_color_gradient2(midpoint=0.5, mid="black", low="orange", high="pink")
 ```
 
