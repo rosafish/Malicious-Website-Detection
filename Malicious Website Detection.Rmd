@@ -8,7 +8,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, warning = FALSE, message = FALSE)
 set.seed(1)
 library(ggformula)
 library(gridExtra)
@@ -180,10 +180,6 @@ pander(100*exp(coef(inf.mod.aic)))
 ```
 
 # Fit Model for Prediction
-```{r}
-
-```
-
  
 ## Create Training and Test Datasets
 ```{r}
@@ -194,39 +190,59 @@ website.test <- website[index, ]
 
 ## Fit Model
 ```{r}
+# Full model
 pred.mod.full <- glm(Type ~ . , data = website.train, family = binomial)
 summary(pred.mod.full)
 
-pred.mod.no.packet <- update(pred.mod.full, . ~ . - (REMOTE_APP_PACKETS + SOURCE_APP_PACKETS +  REMOTE_APP_BYTES + APP_PACKETS + APP_BYTES))
+# No packets
+pred.mod.no.packet <- pred.mod.full
 summary(pred.mod.no.packet)
+
+# Avoid overfitting, use the reduced model we got from above
+pred.mod.inf.mod.aic <- update(inf.mod.aic, Type ~ URL_LENGTH + NUMBER_SPECIAL_CHARACTERS + SERVER + CONTENT_LENGTH +
+                                 WHOIS_COUNTRY + WHOIS_REGDATE + TCP_CONVERSATION_EXCHANGE + DIST_REMOTE_TCP_PORT +
+                                 SOURCE_APP_BYTES + DNS_QUERY_TIMES + NA_UPDATED_DATE, data = website.train, family = binomial)
+summary(pred.mod.inf.mod.aic)
+
+# No server
+pred.mod.no.server <- update(inf.mod.aic, . ~ . -SERVER, data = website.train, family = binomial)
+summary(pred.mod.no.server)
+
+# No country
+pred.mod.no.country <- update(inf.mod.aic, . ~ . -WHOIS_COUNTRY, data = website.train, family = binomial)
+summary(pred.mod.no.country)
 ```
 
 ## Prediction
 ```{r}
-pred.full <- predict(pred.mod.full, newdata = website.test, type = "response")
-website.test <- website.test %>% mutate(pred.full = as.factor(ifelse(pred.full <= 0.5, 0, 1)))
-accuracy.full <- mean(website.test$pred.full == website.test$Type)
+# With full model
+pred.full.col <- predict(pred.mod.full, newdata = website.test, type = "response")
+website.test <- website.test %>% mutate(pred.full = as.factor(ifelse(as.numeric(pred.full.col) <= 0.5, 0, 1)))
+(accuracy.full <- mean(website.test$pred.full == website.test$Type))
+
+# With no packet model
+pred.no.packet.col <- predict(pred.mod.no.packet, newdata = website.test, type = "response")
+website.test <- website.test %>% mutate(pred.no.packet = as.factor(ifelse(as.numeric(pred.no.packet.col) <= 0.5, 0, 1)))
+(accuracy.no.packet <- mean(website.test$pred.no.packet == website.test$Type))
+
+# With inf.mod.aic model
+pred.inf.mod.aic.col <- predict(pred.mod.inf.mod.aic, newdata = website.test, type = "response")
+website.test <- website.test %>% mutate(pred.inf.mod.aic = as.factor(ifelse(as.numeric(pred.inf.mod.aic.col) <= 0.5, 0, 1)))
+(accuracy.inf.mod.aic <- mean(website.test$pred.inf.mod.aic == website.test$Type))
+
+# With no server model
+pred.no.server.col  <- predict(pred.mod.no.server , newdata = website.test, type = "response")
+website.test <- website.test %>% mutate(pred.no.server = as.factor(ifelse(as.numeric(pred.no.server.col) <= 0.5, 0, 1)))
+(accuracy.no.server <- mean(website.test$pred.no.server == website.test$Type))
+
+# With no country model
+pred.no.country.col  <- predict(pred.mod.no.country , newdata = website.test, type = "response")
+website.test <- website.test %>% mutate(pred.no.country = as.factor(ifelse(as.numeric(pred.no.country.col) <= 0.5, 0, 1)))
+(accuracy.no.country  <- mean(website.test$pred.no.country  == website.test$Type))
 ```
 
-# Fit Quantatative Model
-
 ```{r}
-# training / test set split for dataset with quantitative predictors only
-index <- sample(1:nrow(website.quant), size=0.2*nrow(website.quant))
-website.train.quant <- website.quant[-index, ]
-website.test.quant <- website.quant[index, ]
-
-# glm
-pred.mod.quant <- glm(Type ~ . , data = website.train.quant, family = binomial)
-summary(pred.mod.quant)
-pred.mod.quant.signif <- glm(Type ~ URL_LENGTH + NUMBER_SPECIAL_CHARACTERS + CONTENT_LENGTH + DIST_REMOTE_TCP_PORT, 
-                        data = website.train.quant, family = binomial)
-summary(pred.mod.quant.signif)
-residualPlots(pred.mod.quant.signif)
-
-# predict
-pred.quant.signif <- predict(pred.mod.quant.signif, newdata = website.test.quant, type = "response")
-website.test <- website.test.quant %>% mutate(pred.quant.signif = as.factor(ifelse(pred.quant.signif <= 0.5, 0, 1)))
-accuracy.quant.signif <- mean(website.test.quant$pred.quant.signif == website.test$Type)
+pred.mod.no.packet.sum <- summary(pred.mod.no.packet)
+pander(cbind(pred.mod.no.packet.sum$coefficients), type = "pdf")
 ```
 
