@@ -21,6 +21,7 @@ library(GGally)
 library(pander)
 library(purrr)
 library(MASS)
+library(effects)
 ```
 
 
@@ -145,9 +146,6 @@ website <-website %>%
 inf.mod.full <- glm(Type ~ . , data = website, family = binomial)
 str(website)
 summary(inf.mod.full)
-```
-
-```{r}
 influenceIndexPlot(inf.mod.full, vars = c("Cook", "Studentized", "hat"))
 residualPlots(inf.mod.full)
 ```
@@ -160,7 +158,7 @@ residualPlots(inf.mod.no.outlier)
 ```
 
 ## Model Selection
-```{r}
+```{r fig.height=9, fig.width=12}
 # Multicollinearity (PACKETS & BYTES)
 inf.mod.bytes <- update(inf.mod.no.outlier, . ~ . - (REMOTE_APP_PACKETS + SOURCE_APP_PACKETS +  REMOTE_APP_BYTES + APP_PACKETS + APP_BYTES))
 anova(inf.mod.bytes, inf.mod.no.outlier, test = "Chisq")
@@ -170,12 +168,15 @@ inf.mod.aic <- stepAIC(inf.mod.bytes,
                            direction = "both",
                            trace = 0)
 summary(inf.mod.aic)
+influenceIndexPlot(inf.mod.aic, vars = c("Cook", "Studentized", "hat"))
+crPlots(inf.mod.aic)
+plot(allEffects(inf.mod.aic, title=""), rows = 3, cols = 4, main="")
 ```
 
 
 ## Interpretation
 ```{r}
-
+pander(100*exp(coef(inf.mod.aic)))
 ```
 
 # Fit Model for Prediction
