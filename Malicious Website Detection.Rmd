@@ -1,9 +1,10 @@
 ---
-title: "Final Project"
+title: "Final Project Code Appendix"
 author: "Weijia Ma and Rosa Zhu"
 date: "5/17/2018"
 output:
-  html_document
+  html_document:
+    df_print: paged
 ---
 
 ```{r setup, include=FALSE}
@@ -24,9 +25,8 @@ library(effects)
 library(ROCR)
 ```
 
-
-
 # Load Dataset
+
 ```{r}
 website <- read.csv("~/Desktop/Malicious-Website-Detection/benign_or_malicious_website.csv")
 ```
@@ -104,13 +104,17 @@ website.sm <- website %>%
   
 # EDA
 
-```{r}
-# App Packets & Bytes
-ggpairs(website[, 12:17])
-gf_boxplot(APP_BYTES ~ Type, data = website)
-gf_boxplot(URL_LENGTH ~ Type, data = website)
-gf_boxplot(DNS_QUERY_TIMES ~ Type, data = website)
+A numerical overview of all the varibles.
 
+```{r}
+# numerical summary of the data
+web.sum <- summary(website)
+pander(web.sum)
+```
+
+An graphical overview of the quantitative predictors.
+
+```{r}
 # Quantatative
 # select quantitative vars
 website.quant <- website %>% 
@@ -121,7 +125,19 @@ website.quant %>%
   ggplot(aes(value)) +
     facet_wrap(~ key, scales = "free") +
     geom_histogram()
+```
 
+We found there to be collinearity among the predictors related of number packets and bytes generated during communication of the honeypot and the server. 
+
+```{r}
+# App Packets & Bytes
+ggpairs(website[, 12:17])
+gf_boxplot(APP_BYTES ~ Type, data = website)
+```
+
+We also explored how some of the predictor variables related to the response varible. The server brand and country both seem to have potential impact on the type of the website. Shorter url length and higher DNS query times seem to be associated with higher odds of malicious website.
+
+```{r}
 # Charset
 website %>% gf_bar(~CHARSET, fill=~Type)
 table(website$CHARSET, website$Type) %>% prop.table(margin=1)
@@ -133,13 +149,11 @@ table(website$SERVER, website$Type) %>% prop.table(margin=1)
 # REGDATE
 gf_boxplot(WHOIS_REGDATE ~ Type, data = website)
 
-# numerical summary of the data
-web.sum <- summary(website)
-pander(web.sum)
-
 # graphical summary of the data (some variables)
 spineplot(Type ~ SERVER, data = website)
 spineplot(Type ~ WHOIS_COUNTRY, data = website)
+gf_boxplot(URL_LENGTH ~ Type, data = website)
+gf_boxplot(DNS_QUERY_TIMES ~ Type, data = website)
 ```
 
 # Fit Model for Inference
@@ -206,7 +220,12 @@ pander(100*exp(coef(inf.mod.aic)))
 
 # Fit Model for Prediction
 
+We are optimizing accuracy of the predictive model. 
+
 ## Create Training and Test Datasets
+
+We splited the dataset into a test set(20%) and a training set (80%) randomly. We are going to fit our model with the test set and use the training set to assess the model.
+
 ```{r}
 index <- sample(1:nrow(website), size=0.2*nrow(website))
 website.train <- website[-index, ]
@@ -214,89 +233,129 @@ website.test <- website[index, ]
 ```
 
 ## Fit Model
+
+### Model selection based on predictive accuracy
+
+Fit the full model and got an accuracy value of 94.3%.
+
 ```{r}
 # Full model
 pred.mod.full <- glm(Type ~ . , data = website.train, family = binomial)
 summary(pred.mod.full)
 
-# No packets
-pred.mod.no.packet <- glm(Type ~ . -(REMOTE_APP_PACKETS + SOURCE_APP_PACKETS +  REMOTE_APP_BYTES + APP_PACKETS + APP_BYTES), data = website.train, family = binomial)
-summary(pred.mod.no.packet)
-
-# Avoid overfitting, use the reduced model we got from AIC stepwise elimination
-pred.mod.inf.mod.aic <- update(inf.mod.aic, Type ~ URL_LENGTH + NUMBER_SPECIAL_CHARACTERS + SERVER + CONTENT_LENGTH +
-                                 WHOIS_COUNTRY + WHOIS_REGDATE + TCP_CONVERSATION_EXCHANGE + DIST_REMOTE_TCP_PORT +
-                                 SOURCE_APP_BYTES + DNS_QUERY_TIMES + NA_UPDATED_DATE, data = website.train, family = binomial)
-summary(pred.mod.inf.mod.aic)
-
-# No server
-pred.mod.no.server <- update(pred.mod.no.packet, . ~ . -SERVER, data = website.train, family = binomial)
-summary(pred.mod.no.server)
-
-# No country
-pred.mod.no.country <- update(pred.mod.no.packet, . ~ . -WHOIS_COUNTRY, data = website.train, family = binomial)
-summary(pred.mod.no.country)
-
-# No update date
-pred.mod.final <- update(pred.mod.no.packet, . ~ . -WHOIS_UPDATED_DATE, data = website.train, family = binomial)
-summary(pred.mod.final)
-```
-
-## Prediction
-```{r}
 # With full model
 pred.full.col <- predict(pred.mod.full, newdata = website.test, type = "response")
 website.test <- website.test %>% mutate(pred.full = as.factor(ifelse(as.numeric(pred.full.col) <= 0.5, 0, 1)))
 (accuracy.full <- mean(website.test$pred.full == website.test$Type))
+```
+
+We then tried to eliminate the multi-collinear variables related to packets and bytes, because the redundant information provided by the correlated predictors are likely to overweigh the importance of those predictors. The newly fitted model results in an accuracy of 93.8%. To avoid overfitting, we tried to stepwise eliminate predictors based on the model with no packets or bytes predictors. We discovered that accuracy increases to 95.8% once we get rid of the server predictor. Thus the variable server is likely to lead to overfitting.
+
+```{r}
+# No packets
+pred.mod.no.packet <- glm(Type ~ . -(REMOTE_APP_PACKETS + SOURCE_APP_PACKETS +  REMOTE_APP_BYTES + APP_PACKETS + APP_BYTES), data = website.train, family = binomial)
+summary(pred.mod.no.packet)
 
 # With no packet model
 pred.no.packet.col <- predict(pred.mod.no.packet, newdata = website.test, type = "response")
 website.test <- website.test %>% mutate(pred.no.packet = as.factor(ifelse(as.numeric(pred.no.packet.col) <= 0.5, 0, 1)))
 (accuracy.no.packet <- mean(website.test$pred.no.packet == website.test$Type))
 
-# With inf.mod.aic model
-pred.inf.mod.aic.col <- predict(pred.mod.inf.mod.aic, newdata = website.test, type = "response")
-website.test <- website.test %>% mutate(pred.inf.mod.aic = as.factor(ifelse(as.numeric(pred.inf.mod.aic.col) <= 0.5, 0, 1)))
-(accuracy.inf.mod.aic <- mean(website.test$pred.inf.mod.aic == website.test$Type))
+# No server and packets
+pred.mod.no.server <- update(pred.mod.no.packet, . ~ . -SERVER, data = website.train, family = binomial)
+summary(pred.mod.no.server)
 
-# With no server model
+# With no server and packets model
 pred.no.server.col  <- predict(pred.mod.no.server , newdata = website.test, type = "response")
 website.test <- website.test %>% mutate(pred.no.server = as.factor(ifelse(as.numeric(pred.no.server.col) <= 0.5, 0, 1)))
 (accuracy.no.server <- mean(website.test$pred.no.server == website.test$Type))
 
-# With no country model
+# No country and packets
+pred.mod.no.country <- update(pred.mod.no.packet, . ~ . -WHOIS_COUNTRY, data = website.train, family = binomial)
+summary(pred.mod.no.country)
+
+# With no country model and packets
 pred.no.country.col  <- predict(pred.mod.no.country , newdata = website.test, type = "response")
 website.test <- website.test %>% mutate(pred.no.country = as.factor(ifelse(as.numeric(pred.no.country.col) <= 0.5, 0, 1)))
 (accuracy.no.country  <- mean(website.test$pred.no.country  == website.test$Type))
 
-# No DNS
-pred.final.col <- predict(pred.mod.final , newdata = website.test, type = "response")
-website.test <- website.test %>% mutate(pred.final = as.factor(ifelse(as.numeric(pred.final.col) <= 0.5, 0, 1)))
-(accuracy.final  <- mean(website.test$pred.final  == website.test$Type))
+# No whois_updated_date and packets
+pred.mod.no.update <- update(pred.mod.no.packet, . ~ . -WHOIS_UPDATED_DATE, data = website.train, family = binomial)
+summary(pred.mod.no.update)
+
+# No packets and whois_updated_date
+pred.no.update.col <- predict(pred.mod.no.update , newdata = website.test, type = "response")
+website.test <- website.test %>% mutate(pred.no.update = as.factor(ifelse(as.numeric(pred.no.update.col) <= 0.5, 0, 1)))
+(accuracy.no.update <- mean(website.test$pred.no.update  == website.test$Type))
 ```
 
+To further avoid overfitting, we tried to use the inferential model for prediction, and the corresponding accuracy is 95.3%.
+
 ```{r}
-pred.final.sum <- summary(pred.mod.final)
-pander(cbind(pred.final.sum$coefficients), type = "pdf")
+# Avoid overfitting, use the reduced model we got from AIC stepwise elimination
+pred.mod.inf.mod.aic <- update(inf.mod.aic, Type ~ URL_LENGTH + NUMBER_SPECIAL_CHARACTERS + SERVER + CONTENT_LENGTH +
+                                 WHOIS_COUNTRY + WHOIS_REGDATE + TCP_CONVERSATION_EXCHANGE + DIST_REMOTE_TCP_PORT +
+                                 SOURCE_APP_BYTES + DNS_QUERY_TIMES + NA_UPDATED_DATE, data = website.train, family = binomial)
+summary(pred.mod.inf.mod.aic)
 
-preds_obj2 <- prediction(pred.inf.mod.aic.col, website.test$Type)
+# With inferential model
+pred.inf.mod.aic.col <- predict(pred.mod.inf.mod.aic, newdata = website.test, type = "response")
+website.test <- website.test %>% mutate(pred.inf.mod.aic = as.factor(ifelse(as.numeric(pred.inf.mod.aic.col) <= 0.5, 0, 1)))
+(accuracy.inf.mod.aic <- mean(website.test$pred.inf.mod.aic == website.test$Type))
+```
+
+Since we have discovered previously that server predictor seem to have effects on overfitting, we eliminated the predictor and resulted in a higher accuracy of 96.4%. Further reducing the model, we eliminated the country predictor based on the new model, and the resulted accuracy did not change.
+
+```{r}
+# Inferential model with no server
+pred.mod.no.server.inf <- update(pred.mod.inf.mod.aic, . ~ . -SERVER, data = website.train, family = binomial)
+summary(pred.mod.no.server.inf)
+
+# Inferential model with no server
+pred.mod.no.server.inf.col <- predict(pred.mod.no.server.inf, newdata = website.test, type = "response")
+pred.final.col <- predict(pred.mod.no.server.inf, newdata = website.test, type = "response")
+website.test <- website.test %>% mutate(pred.mod.no.server.inf = as.factor(ifelse(as.numeric(pred.mod.no.server.inf.col) <= 0.5, 0, 1)))
+(accuracy.mod.no.server.inf <- mean(website.test$pred.mod.no.server.inf == website.test$Type))
+
+# Further reduce the model: getting rid of country
+pred.mod.no.country.inf <- update(pred.mod.inf.mod.aic, . ~ . -(SERVER + WHOIS_COUNTRY), data = website.train, family = binomial)
+summary(pred.mod.no.country.inf)
+
+pred.mod.no.country.inf.col <- predict(pred.mod.no.country.inf, newdata = website.test, type = "response")
+website.test <- website.test %>% mutate(pred.mod.no.country.inf = as.factor(ifelse(as.numeric(pred.mod.no.country.inf.col) <= 0.5, 0, 1)))
+(accuracy.mod.no.country.inf <- mean(website.test$pred.mod.no.country.inf == website.test$Type))
+```
+
+## Comparison of the two models
+
+To further compare the two models with accuracy of 96.4%, we plotted the ROC curves for both models. From the plots, we can see that the model with no server and country predictors has a greater area under the ROC curve, which indicates better accuracy. Moreover, since it has less variables, it is less likely to have overfitting issue than the other model. Since our goal is to maximize accuracy and avoid overfitting probelm, we chose the model with no server nor country predictors to be our final predictive model. On the other hand, the other model has a higher sensitivity than our model.
+
+```{r}
+preds_obj2 <- prediction(pred.no.country.col, website.test$Type)
 perf_obj2 <- performance(preds_obj2, "tpr","fpr")
-perf_df2 <- data_frame(fpr=unlist(perf_obj2@x.values),tpr= unlist(perf_obj2@y.values), threshold=unlist(perf_obj2@alpha.values), model="Inferential Model")
-plot(perf_obj2)
+perf_df2 <- data_frame(fpr=unlist(perf_obj2@x.values),tpr= unlist(perf_obj2@y.values), threshold=unlist(perf_obj2@alpha.values), model="No server and country")
 
-preds_obj1 <- prediction(pred.final.col, website.test$Type)
+preds_obj1 <- prediction(pred.no.server.col, website.test$Type)
 perf_obj1 <- performance(preds_obj1, "tpr","fpr")
-perf_df1 <- data_frame(fpr=unlist(perf_obj1@x.values),tpr= unlist(perf_obj1@y.values), threshold=unlist(perf_obj1@alpha.values), model="Predictive Model")
-head(perf_df1)
+perf_df1 <- data_frame(fpr=unlist(perf_obj1@x.values),tpr= unlist(perf_obj1@y.values), threshold=unlist(perf_obj1@alpha.values), model="No server")
+
 perf_df <- bind_rows(perf_df1, perf_df2)
-perf_df
+
 ggplot(perf_df, aes(x=fpr, y=tpr, color=model)) +  geom_line() + 
   labs(x="false positive rate (1-specificity)", y="true positive rate (sensitivity)", title="ROC curve for logistic") + 
   geom_abline(slope=1,intercept=0, linetype=3) 
 
 ggplot(perf_df1, aes(x=fpr, y=tpr, color=threshold)) +  geom_line() + 
-  labs(x="false positive rate (1-specificity)", y="true positive rate (sensitivity)", title="ROC curve for logistic") + 
+  labs(x="false positive rate (1-specificity)", y="true positive rate (sensitivity)", title="ROC curve for logistic model with no server") + 
   geom_abline(slope=1,intercept=0, linetype=3) + 
   scale_color_gradient2(midpoint=0.5, mid="black", low="orange", high="pink")
+
+ggplot(perf_df2, aes(x=fpr, y=tpr, color=threshold)) +  geom_line() + 
+  labs(x="false positive rate (1-specificity)", y="true positive rate (sensitivity)", title="ROC curve for logistic model with no server and country") + 
+  geom_abline(slope=1,intercept=0, linetype=3) + 
+  scale_color_gradient2(midpoint=0.5, mid="black", low="orange", high="pink")
+
+pred.final.sum <- summary(pred.mod.no.country.inf)
+pander(cbind(pred.final.sum$coefficients), type = "pdf")
 ```
 
