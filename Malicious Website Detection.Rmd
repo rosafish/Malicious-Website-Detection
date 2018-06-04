@@ -356,6 +356,6 @@ ggplot(perf_df2, aes(x=fpr, y=tpr, color=threshold)) +  geom_line() +
   scale_color_gradient2(midpoint=0.5, mid="black", low="orange", high="pink")
 
 pred.final.sum <- summary(pred.mod.no.country.inf)
-pander(cbind(pred.final.sum$coefficients), type = "pdf")
+pander(formatC(cbind(pred.final.sum$coefficients), format = "e", digits = 2), type = "pdf")
 ```
 
