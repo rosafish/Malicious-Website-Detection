@@ -10,6 +10,7 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE,warning = FALSE, message = FALSE)
 set.seed(1)
+par(ask=F)
 library(ggformula)
 library(gridExtra)
 library(broom)
@@ -132,12 +133,11 @@ We found there to be collinearity among the predictors related of number packets
 ```{r}
 # App Packets & Bytes
 ggpairs(website[, 12:17])
-gf_boxplot(APP_BYTES ~ Type, data = website)
 ```
 
 We also explored how some of the predictor variables related to the response varible. The server brand and country both seem to have potential impact on the type of the website. Shorter url length and higher DNS query times seem to be associated with higher odds of malicious website.
 
-```{r}
+```{r fig.width=5, fig.height=4}
 # Charset
 website %>% gf_bar(~CHARSET, fill=~Type)
 table(website$CHARSET, website$Type) %>% prop.table(margin=1)
@@ -175,6 +175,7 @@ residualPlots(inf.mod.no.outlier)
 We fit the full model of log odds of malicious website on all the variables. Through repeated influential point detection, we found 7 outliers with high Cook's Distance and/or Standardized Redisual so they are excluded from the rest of the analysis.
 
 Assumption checking tells us that the linearity assumption is satisfied.
+The data collection is random and the independence assumption could also be assumed as there is no sign of pairing or clustering.
 
 ## Model Selection
 
@@ -191,13 +192,13 @@ inf.mod.aic <- stepAIC(inf.mod.bytes,
                        trace = 0)
 pander(tidy(inf.mod.aic))
 # Drop in deviance test for server and country
-inf.mod.country <- update(inf.mod.aic, . ~ . + WHOIS_COUNTRY)
-anova(inf.mod.aic, inf.mod.country, test = "Chisq")
-inf.mod.server <- update(inf.mod.aic, . ~ . + SERVER)
-anova(inf.mod.aic, inf.mod.server, test = "Chisq")
+inf.mod.no.country <- update(inf.mod.aic, . ~ . - WHOIS_COUNTRY)
+anova(inf.mod.no.country, inf.mod.aic, test = "Chisq")
+inf.mod.no.server <- update(inf.mod.aic, . ~ . - SERVER)
+anova(inf.mod.no.server, inf.mod.aic, test = "Chisq")
 ```
 
-We see that although certain levels in server and country are insignificant according to the Wald test, we see that at least one of the coefficient is not 0 according to the drop-in-deviance tests.
+Certain levels in country seem to be insignificant according to the Wald test, so we conduct drop-in-deviance test on the country variable separately. The small p-value (<0.001) tells that at least the coefficient for one of the level is not 0 for country. Similar conclusion can be made about server, whose drop-in-deviance test also has a p-value < 0.001.
 
 # Model assessment
 ```{r}
@@ -211,12 +212,17 @@ inf.mod.aic$deviance/inf.mod.aic$df.residual
 plot(allEffects(inf.mod.aic, title=""), rows = 3, cols = 4, main="")
 ```
 
-There doesn't seem to be any outliers or non-linearity. The large p-value of the goodness of fit test and the small dispersion parameter (0.22) indicates that the model is adequate and that overdispersion is not likely to be present.
+There doesn't seem to be any outliers or non-linearity. The randomness and independence assumptions are still satisfied. The large p-value of the goodness of fit test and the small dispersion parameter (0.22) indicates that the model is adequate and that overdispersion is not likely to be present.
 
 ## Interpretation
+
+Estimate interpretation and profile likelihood confidence interval:
+
 ```{r}
-pander(100*exp(coef(inf.mod.aic)))
+exp(coef(inf.mod.aic))
+exp(confint(inf.mod.aic, level = 0.95))
 ```
+
 
 # Fit Model for Prediction
 
@@ -242,7 +248,6 @@ Fit the full model and got an accuracy value of 94.3%.
 # Full model
 pred.mod.full <- glm(Type ~ . , data = website.train, family = binomial)
 summary(pred.mod.full)
-
 # With full model
 pred.full.col <- predict(pred.mod.full, newdata = website.test, type = "response")
 website.test <- website.test %>% mutate(pred.full = as.factor(ifelse(as.numeric(pred.full.col) <= 0.5, 0, 1)))
@@ -330,7 +335,7 @@ website.test <- website.test %>% mutate(pred.mod.no.country.inf = as.factor(ifel
 
 To further compare the two models with accuracy of 96.4%, we plotted the ROC curves for both models. From the plots, we can see that the model with no server and country predictors has a greater area under the ROC curve, which indicates better accuracy. Moreover, since it has less variables, it is less likely to have overfitting issue than the other model. Since our goal is to maximize accuracy and avoid overfitting probelm, we chose the model with no server nor country predictors to be our final predictive model. On the other hand, the other model has a higher sensitivity than our model.
 
-```{r}
+```{r fig.width=5, fig.height=4}
 preds_obj2 <- prediction(pred.no.country.col, website.test$Type)
 perf_obj2 <- performance(preds_obj2, "tpr","fpr")
 perf_df2 <- data_frame(fpr=unlist(perf_obj2@x.values),tpr= unlist(perf_obj2@y.values), threshold=unlist(perf_obj2@alpha.values), model="No server and country")
